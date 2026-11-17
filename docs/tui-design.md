@@ -50,7 +50,7 @@ These shortcuts are also sent to the TV's system text input when a text-entry co
 - While SSAP is registered, `0` sends `ssap://system/turnOff` and shows a standby status.
 - When SSAP is unavailable, `0` sends three Wake-on-LAN magic packets to the TV's Ethernet MAC on the local broadcast network.
 - The UI labels the disconnected state `WAKE`, since software cannot distinguish standby from a network outage. Wake depends on the TV's network wake setting and the router passing the local broadcast packet.
-- The TV MAC defaults to the value recorded in [device-map.md](../device-map.md) and can be changed over serial with `TVMAC <xx:xx:xx:xx:xx:xx>`.
+- Configure the TV's Ethernet MAC over serial with `TVMAC <xx:xx:xx:xx:xx:xx>` to enable Wake-on-LAN. No device-specific network address is included by default.
 
 ## Pointer tuning and diagnostics
 

@@ -479,8 +479,8 @@ void setup() {
                 M5Cardputer.Display.width(), M5Cardputer.Display.height());
   prefs.begin("mr-adv", false);
   ssid = prefs.getString("ssid", ""); wifiPass = prefs.getString("wifi_pass", "");
-  tvHost = prefs.getString("tv_host", "[REDACTED-TV-IP]"); clientKey = prefs.getString("client_key", "");
-  tvMac = prefs.getString("tv_mac", "[REDACTED-TV-MAC]");
+  tvHost = prefs.getString("tv_host", ""); clientKey = prefs.getString("client_key", "");
+  tvMac = prefs.getString("tv_mac", "");
   gyroBiasX = prefs.getFloat("gyro_bias_x", 0.0f);
   gyroBiasZ = prefs.getFloat("gyro_bias_z", 0.0f);
   gyroBiasCalibrated = prefs.getBool("gyro_bias_ok", false) &&
@@ -508,7 +508,7 @@ void loop() {
       String previous = tvMac; tvMac = candidate;
       uint8_t mac[6];
       if (parseTvMac(mac)) { prefs.putString("tv_mac", tvMac); Serial.printf("Saved TV MAC: %s\n", tvMac.c_str()); }
-      else { tvMac = previous; Serial.println("TVMAC format error; use TVMAC [REDACTED-TV-MAC]"); }
+      else { tvMac = previous; Serial.println("TVMAC format error; use TVMAC <xx:xx:xx:xx:xx:xx>"); }
     }
     else if (line.startsWith("TV ")) { tvHost=line.substring(3); prefs.putString("tv_host",tvHost); }
     else if (line == "STATUS") {

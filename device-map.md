@@ -13,7 +13,7 @@ Captured 2026-11-16 from the configured `ssh lgtv` host. The collection was read
 | OTA / platform identity | `HE_DTV_W21O_AFABATAA`, machine `O20N`, region `GLOBAL`, `webOSTV 6.0` | `/etc/starfish/model_id.json`; platform identity says 6.0 while runtime release is 6.5.3. |
 | CPU / kernel | ARM64, Linux `4.4.84-229.kcl4tv.6`, build date 2025-09-13 | `uname -a` |
 | Root filesystem | SquashFS read only, with writable overlay/data partitions | `/` is `/dev/mmcblk0p27`; data mounts include `/mnt/lg/db8`, `/mnt/lg/appstore`, `/mnt/lg/cmn_data`, `/mnt/lg/user`, `/var`, and `/home`. |
-| Ethernet | `eth0`, `[REDACTED-TV-MAC]`, `[REDACTED-TV-IP]/24`; gateway `192.168.8.1` | Live interface state during capture. |
+| Ethernet | `eth0`; address and hardware identifier redacted | Live interface state during capture. |
 | Wi-Fi / P2P | `wlan0` was up but had no carrier; `p2p0` was dormant | The TV was using Ethernet during capture. |
 
 ## Exposed remote input devices
@@ -69,6 +69,6 @@ Other observed services/processes included `webos-bluetooth-service`, `irdbmanag
 
 ## Sources
 
-- Local observation: SSH host configuration and read-only commands on `[REDACTED-TV-IP]`, 2026-11-16.
+- Local observation: SSH host configuration and read-only commands on the TV, 2026-11-16. Network identifiers redacted.
 - M5Stack official [Cardputer ADV product page](https://shop.m5stack.com/products/m5stack-cardputer-adv-version-esp32-s3) (ESP32-S3, BLE, IR transmission).
 - Example open implementation of LG webOS remote over SSAP/WebSocket: [pmqt/lgremote](https://github.com/pmqt/lgremote). This is community documentation/code, not a protocol guarantee for every webOS release.

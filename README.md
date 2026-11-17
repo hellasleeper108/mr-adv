@@ -51,7 +51,7 @@ The ESP32-S3 only supports 2.4 GHz Wi-Fi. Connect it to your router's 2.4 GHz SS
    ```
 
    The `|` separates the SSID from the password. Neither value may contain `|`. The firmware saves both in device NVS and reconnects immediately. It reports the SSID and assigned IP, but does not print the password.
-5. Send `STATUS` in the serial monitor. Confirm Wi-Fi is connected and an IP address is shown. The TV address defaults to the value in [device-map.md](device-map.md); if it changes, send `TV <tv-ip>`.
+5. Send `STATUS` in the serial monitor. Confirm Wi-Fi is connected and an IP address is shown. Set the TV's address with `TV <tv-ip>` and its Ethernet MAC with `TVMAC <xx:xx:xx:xx:xx:xx>` for Wake-on-LAN.
 6. For the first connection, turn on the TV and accept the pairing prompt. The saved SSAP key is reused on later boots.
 
 ## Serial setup and diagnostics
@@ -64,7 +64,7 @@ TV <tv-ip>
 TVMAC <xx:xx:xx:xx:xx:xx>
 ```
 
-The default TV IP and Ethernet MAC come from [device-map.md](device-map.md). Useful serial commands:
+TV network settings are not pre-filled; configure them for your own network. Useful serial commands:
 
 - `STATUS` — show Wi-Fi, SSAP, pointer socket, and air-pointer state.
 - `PROBE` — check TCP reachability of TV ports 3000 and 3001.
