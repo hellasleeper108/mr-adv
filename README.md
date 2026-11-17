@@ -25,6 +25,34 @@ Standby, Wake-on-LAN, volume, and mute actions are implemented but still need di
 
 Action shortcuts take precedence over text insertion for their reserved keys. WASD are not navigation shortcuts.
 
+## Connect the Cardputer to Wi-Fi
+
+The ESP32-S3 only supports 2.4 GHz Wi-Fi. Connect it to your router's 2.4 GHz SSID; the TV and Cardputer must be reachable on the same local network.
+
+1. Build and flash the firmware using the commands below, then leave the Cardputer connected to USB.
+2. From this project directory, list serial devices and note the Cardputer port:
+
+   ```sh
+   pio device list
+   ```
+
+   Linux ports look like `/dev/ttyACM0`; macOS ports often look like `/dev/cu.usbmodem...`; Windows ports look like `COM3`.
+3. Open the serial monitor at 115200 baud, replacing `<PORT>` with the port from the previous step:
+
+   ```sh
+   pio device monitor -p <PORT> -b 115200
+   ```
+
+4. Enter this command in the monitor and press Enter, replacing the placeholders with your 2.4 GHz network name and password:
+
+   ```text
+   WIFI <ssid>|<password>
+   ```
+
+   The `|` separates the SSID from the password. Neither value may contain `|`. The firmware saves both in device NVS and reconnects immediately. It reports the SSID and assigned IP, but does not print the password.
+5. Send `STATUS` in the serial monitor. Confirm Wi-Fi is connected and an IP address is shown. The TV address defaults to the value in [device-map.md](device-map.md); if it changes, send `TV <tv-ip>`.
+6. For the first connection, turn on the TV and accept the pairing prompt. The saved SSAP key is reused on later boots.
+
 ## Serial setup and diagnostics
 
 The USB serial monitor uses 115200 baud. SSID, password, TV address, TV MAC, and SSAP client key are stored in ESP32 NVS; the password and client key are not printed.
