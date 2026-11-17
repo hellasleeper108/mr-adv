@@ -1,41 +1,64 @@
 # MR-ADV
 
-Cardputer ADV firmware and research for controlling the configured LG OLED C1. The current prototype uses Wi-Fi and webOS SSAP, so it does not require Bluetooth packet capture or native Magic Remote pairing.
+Cardputer ADV firmware for controlling an LG OLED C1 over the local network. The current build uses webOS SSAP and its separate pointer-input WebSocket; it does not emulate the Magic Remote's Bluetooth identity or voice link.
 
-## Current firmware
+## Current status
 
-`src/main.cpp` connects to the saved Wi-Fi and TV address, registers an SSAP client on the TV's secure WebSocket, requests the separate network-input pointer socket, and maps Cardputer input to navigation, click, text, and gyro-driven pointer movement. SSAP key and Wi-Fi settings are stored in ESP32 NVS. The TV must be awake for initial pairing and the connection prompt must be accepted on screen.
+The Cardputer has paired with the C1, joined the 2.4 GHz network, and reconnected successfully after firmware updates. Pointer movement and directional input were verified at the TV's Linux input layer. The air pointer is tuned for a 50 Hz update target, an 80 ms smoothing time constant, a 3 dps deadband, and 13.22 pixels per degree. The user confirmed the pointer direction and that the new landscape display orientation works well.
 
-The Wi-Fi pointer and navigation path has now been verified on the TV. A `MOVE 120 0` command produced a relative X event (`REL_X=120`) on the TV's `LGE Smart Remote - TouchPad` input node, and `BUTTON RIGHT` produced a Linux `KEY_RIGHT` press/release on its `Smart Remote RCU Input` node. The air pointer integrates gyro rate over elapsed time, applies low-pass smoothing and a 3 dps deadband, accumulates fractional pixels, and inverts both axes to correct the direction the user observed. The latest tuning targets 50 Hz updates, an 80 ms filter time constant, and 13.22 pixels per degree (about 10% above the original sensitivity). Enter/OK clicks the pointer when gyro control is enabled and sends the TV's ENTER key when pointer motion is paused. The dashboard now includes connection, volume, and pointer status with power, volume, mute, and pointer actions; see the [TUI design](docs/tui-design.md). Standby uses SSAP and wake uses LAN magic packets, which depends on the TV's network wake setting. This Wi-Fi mode is a useful network remote; it does not emulate the Magic Remote's BLE identity or voice link.
+The landscape dashboard shows TV/Wi-Fi and SSAP status, volume and pointer state, a D-pad illustration, and power, volume, mute, and pointer controls. `Tab` opens a shortcut guide. See [TUI design](docs/tui-design.md) for the layout and planned UI work.
 
-The ESP32-S3 Wi-Fi radio is 2.4 GHz only. USB CDC on boot is enabled so the serial monitor can send setup commands; it also reports the configured SSID and Wi-Fi state without printing the password. Wi-Fi setup uses the USB serial monitor:
+Standby, Wake-on-LAN, volume, and mute actions are implemented but still need direct on-TV verification. The power action sends `ssap://system/turnOff` while connected; when disconnected, it sends three Wake-on-LAN packets to the TV's Ethernet MAC. Wake requires the TV's network-wake feature and the local network to pass the broadcast packet. An offline TV may instead be unreachable for another reason, so the dashboard labels that state `WAKE` rather than asserting it is asleep.
+
+## Cardputer controls
+
+| Key | Action |
+|---|---|
+| Fn + `;` / `,` / `.` / `/` | Up / Left / Down / Right |
+| Enter | Pointer click while air-pointer is on; navigation Enter while paused |
+| `P` | Pause/resume gyro pointer movement |
+| `H` / `B` | Home / Back |
+| `0` | Standby if connected; otherwise send Wake-on-LAN |
+| `-` / `=` | Volume down / up |
+| `M` | Toggle mute |
+| Tab | Toggle dashboard/help |
+
+Action shortcuts take precedence over text insertion for their reserved keys. WASD are not navigation shortcuts.
+
+## Serial setup and diagnostics
+
+The USB serial monitor uses 115200 baud. SSID, password, TV address, TV MAC, and SSAP client key are stored in ESP32 NVS; the password and client key are not printed.
 
 ```text
 WIFI <ssid>|<password>
 TV <tv-ip>
+TVMAC <xx:xx:xx:xx:xx:xx>
 ```
 
-Serial monitor speed is 115200. Set Wi-Fi first; the firmware connects to the default TV address from `device-map.md` unless you send a `TV` command. `STATUS` prints the saved SSID and link status, `PROBE` checks the TV's TCP ports, `MOVE <dx> <dy>` and `BUTTON <UP|DOWN|LEFT|RIGHT|BACK|HOME|ENTER>` send manual pointer/navigation actions, `CLICK` sends a pointer click, `POINTER ON|OFF` pauses/resumes gyro movement, and `POWER`, `VOLUP`, `VOLDOWN`, and `MUTE` exercise the corresponding remote actions. `TVMAC <mac>` updates the MAC used for Wake-on-LAN. `RESETKEY` clears the stored SSAP key so the TV can issue a new pairing with updated permissions. Keys: hold Fn and press `;` for Up, `,` for Left, `.` for Down, or `/` for Right; Enter clicks/OK, `0` toggles standby/wake, `-` / `=` change volume, `m` toggles mute, Backspace or `b` sends Back, `h` sends Home, `p` toggles air-pointer movement, and Tab opens help. WASD are no longer navigation shortcuts.
+The default TV IP and Ethernet MAC come from [device-map.md](device-map.md). Useful serial commands:
 
-The Cardputer is paired to the TV and associates with the 2.4 GHz network. A permissions-array construction bug caused the earlier `401 insufficient permissions` response; that is fixed in the current build. The TV has accepted registration, returned a secure pointer socket, and the pointer socket connects. See [protocol research](research/magic-remote-protocol.md) for the input-event verification details.
+- `STATUS` — show Wi-Fi, SSAP, pointer socket, and air-pointer state.
+- `PROBE` — check TCP reachability of TV ports 3000 and 3001.
+- `MOVE <dx> <dy>`, `BUTTON <name>`, and `CLICK` — send manual pointer input.
+- `POINTER ON|OFF` — pause or resume gyro motion.
+- `POWER`, `VOLUP`, `VOLDOWN`, and `MUTE` — trigger the matching remote action.
+- `RESETKEY` — clear the saved SSAP client key and reconnect for registration.
+
+The ESP32-S3 Wi-Fi radio uses 2.4 GHz. Initial pairing requires the TV to be awake and the registration request to be accepted on screen.
 
 ## Build and flash
 
-Install PlatformIO, then from this directory:
+Install PlatformIO, then run from this directory:
 
 ```sh
 pio run -e m5cardputer-adv
 pio run -e m5cardputer-adv -t upload
 ```
 
-Use the ADV board's USB connection for upload and serial setup. The firmware uses the M5Stack Cardputer library, ArduinoJson, and Arduino WebSockets.
-
 ## Project files
 
-- [Device map](device-map.md): read-only TV inventory.
-- [Protocol research](research/magic-remote-protocol.md): SSAP and pointer socket research, including what remains uncertain.
-- [TUI design](docs/tui-design.md): compact dashboard layout, key map, power behavior, and the next UI passes.
-- `src/main.cpp`: working firmware prototype.
-
-The longer term native BLE/M-RCU clone remains a separate, optional research track. A useful Wi-Fi remote does not prove BLE emulation.
-# mr-adv
+- [Device map](device-map.md) — read-only TV inventory.
+- [Protocol research](research/magic-remote-protocol.md) — SSAP/pointer findings and the separate native BLE research track.
+- [TUI design](docs/tui-design.md) — dashboard layout, controls, power behavior, and next UI passes.
+- `src/main.cpp` — Cardputer firmware.
+- `platformio.ini` — PlatformIO environment and dependencies.
