@@ -16,15 +16,32 @@ static bool pointerEnabled = true;
 static bool pointerLastSendOk = false;
 static bool muted = false;
 static bool helpPage = false;
+static bool gyroCalibrating = false;
+static bool gyroBiasCalibrated = false;
+static bool imuLogEnabled = false;
 static int volumeLevel = -1;
 static uint32_t lastMotionMs = 0;
+static uint32_t lastImuSampleMs = 0;
+static uint32_t lastImuLogMs = 0;
 static uint32_t lastWifiLogMs = 0;
 static float filteredGx = 0.0f, filteredGz = 0.0f;
 static float motionRemainderX = 0.0f, motionRemainderY = 0.0f;
+static float gyroBiasX = 0.0f, gyroBiasZ = 0.0f;
+static float calibrationSumX = 0.0f, calibrationSumZ = 0.0f;
+static float calibrationSumSqX = 0.0f, calibrationSumSqZ = 0.0f;
+static uint16_t calibrationSamples = 0;
+static bool fastFilterActive = false;
+static uint32_t calibrationStartedMs = 0;
 static constexpr float GYRO_DEADZONE_DPS = 3.0f;
-static constexpr float FILTER_TIME_CONSTANT_S = 0.080f;
+static constexpr float FILTER_TAU_IDLE_S = 0.100f;
+static constexpr float FILTER_TAU_ACTIVE_S = 0.045f;
+static constexpr float FILTER_ACTIVE_ENTER_DPS = 7.0f;
+static constexpr float FILTER_ACTIVE_EXIT_DPS = 4.0f;
 static constexpr float PIXELS_PER_DEGREE = 13.22f; // 3.3% above 12.8; 10.2% above baseline
 static constexpr uint32_t MOTION_INTERVAL_MS = 20; // 50 Hz target
+static constexpr uint32_t IMU_SAMPLE_INTERVAL_MS = 10; // 100 Hz sampling target
+static constexpr uint16_t CALIBRATION_SAMPLE_COUNT = 80; // ~0.8 s at 100 Hz
+static constexpr uint32_t CALIBRATION_SETTLE_MS = 250;
 
 static void drawStatus(const char *line2 = "") {
   auto &d = M5Cardputer.Display;
@@ -41,12 +58,12 @@ static void drawStatus(const char *line2 = "") {
   if (helpPage) {
     d.setTextColor(accent, bg); d.setCursor(10, 31); d.print("REMOTE SHORTCUTS");
     d.setTextColor(TFT_WHITE, bg);
-    d.setCursor(10, 46); d.print("Fn + ; , . /   navigate");
+    d.setCursor(10, 46); d.print("Fn arrows       navigate");
     d.setCursor(10, 59); d.print("Enter           OK / click");
     d.setCursor(10, 72); d.print("P               pointer on/off");
-    d.setCursor(10, 85); d.print("H / B           Home / Back");
-    d.setCursor(10, 98); d.print("0               power / wake");
-    d.setCursor(10, 111); d.print("- / = / M       volume / mute");
+    d.setCursor(10, 85); d.print("C               gyro calibrate");
+    d.setCursor(10, 98); d.print("H / B           Home / Back");
+    d.setCursor(10, 111); d.print("0 power  -/= volume  M mute");
     d.setTextColor(mutedColor, bg); d.setCursor(10, 124); d.print("Tab: return to remote");
     return;
   }
@@ -294,12 +311,30 @@ static void connectTv() {
 
 static void navigate(const char *name) { pointerButton(name); }
 
+static void beginGyroCalibration() {
+  gyroCalibrating = true;
+  calibrationStartedMs = millis();
+  calibrationSamples = 0;
+  calibrationSumX = calibrationSumZ = 0.0f;
+  calibrationSumSqX = calibrationSumSqZ = 0.0f;
+  filteredGx = filteredGz = 0.0f;
+  fastFilterActive = false;
+  motionRemainderX = motionRemainderY = 0.0f;
+  lastImuSampleMs = lastMotionMs = millis();
+  drawStatus("Hold still: gyro calibration");
+}
+
 static void setPointerEnabled(bool enabled) {
+  bool wasEnabled = pointerEnabled;
   pointerEnabled = enabled;
   filteredGx = filteredGz = 0.0f;
   motionRemainderX = motionRemainderY = 0.0f;
   Serial.printf("Air pointer %s\n", pointerEnabled ? "ON" : "OFF");
-  drawStatus(pointerEnabled ? "Air pointer enabled" : "Air pointer paused");
+  if (enabled && !wasEnabled && !gyroBiasCalibrated) beginGyroCalibration();
+  else {
+    if (!enabled) gyroCalibrating = false;
+    drawStatus(pointerEnabled ? "Air pointer enabled" : "Air pointer paused");
+  }
 }
 
 static void sendText(const String &text) {
@@ -326,6 +361,7 @@ static void processKeys() {
     switch (tolower(c)) {
       case 'b': navigate("BACK"); break; case 'h': navigate("HOME"); break;
       case 'p': setPointerEnabled(!pointerEnabled); break;
+      case 'c': beginGyroCalibration(); break;
       case 'g': primaryAction(); break;
       case '0': togglePower(); break;
       case '-': sendVolumeStep(false); break;
@@ -344,15 +380,61 @@ static void processKeys() {
 
 static void updateAirPointer() {
   uint32_t now = millis();
-  if (!pointerReady || !pointerEnabled) { lastMotionMs = now; return; }
-  if (now - lastMotionMs < MOTION_INTERVAL_MS) return;
-  uint32_t elapsedMs = now - lastMotionMs;
-  lastMotionMs = now;
+  if (!pointerEnabled && !gyroCalibrating && !imuLogEnabled) {
+    lastImuSampleMs = lastMotionMs = now;
+    return;
+  }
+  if (now - lastImuSampleMs < IMU_SAMPLE_INTERVAL_MS) return;
+  uint32_t elapsedMs = now - lastImuSampleMs;
+  lastImuSampleMs = now;
   // Avoid a large cursor jump after a temporary loop stall.
   float dt = min(elapsedMs, (uint32_t)80) / 1000.0f;
   float gx=0, gy=0, gz=0;
   if (!M5.Imu.getGyro(&gx, &gy, &gz)) return;
-  float filterAlpha = dt / (FILTER_TIME_CONSTANT_S + dt);
+
+  if (gyroCalibrating) {
+    if (now - calibrationStartedMs < CALIBRATION_SETTLE_MS) return;
+    calibrationSumX += gx; calibrationSumZ += gz;
+    calibrationSumSqX += gx * gx; calibrationSumSqZ += gz * gz;
+    calibrationSamples++;
+    if (calibrationSamples >= CALIBRATION_SAMPLE_COUNT) {
+      float meanX = calibrationSumX / calibrationSamples;
+      float meanZ = calibrationSumZ / calibrationSamples;
+      float varianceX = fmaxf(0.0f, calibrationSumSqX / calibrationSamples - meanX * meanX);
+      float varianceZ = fmaxf(0.0f, calibrationSumSqZ / calibrationSamples - meanZ * meanZ);
+      gyroCalibrating = false;
+      if (fabsf(meanX) < 10.0f && fabsf(meanZ) < 10.0f &&
+          sqrtf(varianceX) < 1.5f && sqrtf(varianceZ) < 1.5f) {
+        gyroBiasX = meanX; gyroBiasZ = meanZ; gyroBiasCalibrated = true;
+        prefs.putFloat("gyro_bias_x", gyroBiasX);
+        prefs.putFloat("gyro_bias_z", gyroBiasZ);
+        prefs.putBool("gyro_bias_ok", true);
+        Serial.printf("Gyro calibration complete: biasX=%.2f biasZ=%.2f dps\n", gyroBiasX, gyroBiasZ);
+        drawStatus("Gyro calibrated");
+      } else {
+        Serial.printf("Gyro calibration rejected: stdX=%.2f stdZ=%.2f dps\n", sqrtf(varianceX), sqrtf(varianceZ));
+        drawStatus("Calibration rejected; hold still");
+      }
+      filteredGx = filteredGz = 0.0f;
+      motionRemainderX = motionRemainderY = 0.0f;
+      lastMotionMs = now;
+    }
+    if (imuLogEnabled && now - lastImuLogMs >= 50) {
+      lastImuLogMs = now;
+      Serial.printf("IMU t=%lu dt=%lu cal=1 gx=%.2f gz=%.2f n=%u\n",
+                    (unsigned long)now, (unsigned long)elapsedMs, gx, gz, calibrationSamples);
+    }
+    return;
+  }
+
+  float rawX = gx, rawZ = gz;
+  gx -= gyroBiasX; gz -= gyroBiasZ;
+  float activityDps = fmaxf(fabsf(gx), fabsf(gz));
+  // Filter gently at rest, then respond faster once the movement is deliberate.
+  if (fastFilterActive ? activityDps < FILTER_ACTIVE_EXIT_DPS : activityDps > FILTER_ACTIVE_ENTER_DPS)
+    fastFilterActive = !fastFilterActive;
+  float tau = fastFilterActive ? FILTER_TAU_ACTIVE_S : FILTER_TAU_IDLE_S;
+  float filterAlpha = dt / (tau + dt);
   filteredGx += filterAlpha * (gx - filteredGx);
   filteredGz += filterAlpha * (gz - filteredGz);
   // Integrate angular velocity into a pointer delta. Both signs are inverted
@@ -361,13 +443,29 @@ static void updateAirPointer() {
       ? copysignf(fabsf(filteredGz) - GYRO_DEADZONE_DPS, filteredGz) : 0.0f;
   float rateY = fabsf(filteredGx) > GYRO_DEADZONE_DPS
       ? copysignf(fabsf(filteredGx) - GYRO_DEADZONE_DPS, filteredGx) : 0.0f;
-  motionRemainderX += -rateX * dt * PIXELS_PER_DEGREE;
-  motionRemainderY += -rateY * dt * PIXELS_PER_DEGREE;
-  int dx = (int)motionRemainderX;
-  int dy = (int)motionRemainderY;
-  motionRemainderX -= dx;
-  motionRemainderY -= dy;
-  if (dx || dy) pointerMessage(String("type:move\ndx:") + dx + "\ndy:" + dy + "\ndown:0\n\n");
+  if (pointerReady && pointerEnabled) {
+    motionRemainderX += -rateX * dt * PIXELS_PER_DEGREE;
+    motionRemainderY += -rateY * dt * PIXELS_PER_DEGREE;
+  } else {
+    motionRemainderX = motionRemainderY = 0.0f;
+    lastMotionMs = now;
+  }
+
+  if (pointerReady && pointerEnabled && now - lastMotionMs >= MOTION_INTERVAL_MS) {
+    lastMotionMs = now;
+    int dx = (int)motionRemainderX;
+    int dy = (int)motionRemainderY;
+    motionRemainderX -= dx;
+    motionRemainderY -= dy;
+    if (dx || dy) pointerMessage(String("type:move\ndx:") + dx + "\ndy:" + dy + "\ndown:0\n\n");
+  }
+
+  if (imuLogEnabled && now - lastImuLogMs >= 50) {
+    lastImuLogMs = now;
+    Serial.printf("IMU t=%lu dt=%lu cal=0 rawX=%.2f rawZ=%.2f biasX=%.2f biasZ=%.2f filtX=%.2f filtZ=%.2f outX=%.2f outY=%.2f\n",
+                  (unsigned long)now, (unsigned long)elapsedMs, rawX, rawZ, gyroBiasX, gyroBiasZ, filteredGx, filteredGz,
+                  motionRemainderX, motionRemainderY);
+  }
 }
 
 void setup() {
@@ -383,6 +481,10 @@ void setup() {
   ssid = prefs.getString("ssid", ""); wifiPass = prefs.getString("wifi_pass", "");
   tvHost = prefs.getString("tv_host", "[REDACTED-TV-IP]"); clientKey = prefs.getString("client_key", "");
   tvMac = prefs.getString("tv_mac", "[REDACTED-TV-MAC]");
+  gyroBiasX = prefs.getFloat("gyro_bias_x", 0.0f);
+  gyroBiasZ = prefs.getFloat("gyro_bias_z", 0.0f);
+  gyroBiasCalibrated = prefs.getBool("gyro_bias_ok", false) &&
+                       fabsf(gyroBiasX) < 10.0f && fabsf(gyroBiasZ) < 10.0f;
   drawStatus("Set Wi-Fi once over Serial: WIFI ssid|password");
   Serial.println("MR-ADV setup: WIFI <ssid>|<password> or TV <ip>; credentials stay in NVS.");
   Serial.printf("Saved Wi-Fi SSID: %s\n", ssid.c_str());
@@ -411,11 +513,14 @@ void loop() {
     else if (line.startsWith("TV ")) { tvHost=line.substring(3); prefs.putString("tv_host",tvHost); }
     else if (line == "STATUS") {
       reportWifiStatus();
-      Serial.printf("TV state: ssap=%s registered=%s pointer=%s air-pointer=%s\n", ssapConnected ? "connected" : "disconnected", registered ? "yes" : "no", pointerReady ? "ready" : "not-ready", pointerEnabled ? "on" : "off");
+      Serial.printf("TV state: ssap=%s registered=%s pointer=%s air-pointer=%s gyro-calibrated=%s calibrating=%s\n", ssapConnected ? "connected" : "disconnected", registered ? "yes" : "no", pointerReady ? "ready" : "not-ready", pointerEnabled ? "on" : "off", gyroBiasCalibrated ? "yes" : "no", gyroCalibrating ? "yes" : "no");
     }
     else if (line == "PROBE") probeTvPorts();
     else if (line == "POINTER ON") setPointerEnabled(true);
     else if (line == "POINTER OFF") setPointerEnabled(false);
+    else if (line == "CALIBRATE") beginGyroCalibration();
+    else if (line == "IMULOG ON") { imuLogEnabled = true; Serial.println("IMU logging on (20 Hz)"); }
+    else if (line == "IMULOG OFF") { imuLogEnabled = false; Serial.println("IMU logging off"); }
     else if (line == "POWER") togglePower();
     else if (line == "VOLUP") sendVolumeStep(true);
     else if (line == "VOLDOWN") sendVolumeStep(false);

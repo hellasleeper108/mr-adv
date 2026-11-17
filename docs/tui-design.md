@@ -36,6 +36,7 @@ The user confirmed the landscape orientation and dashboard are comfortable to op
 | Fn + `;`, `,`, `.`, `/` | Up, Left, Down, Right |
 | Enter | Pointer click while air-pointer is on; navigation Enter while paused |
 | `P` | Pause/resume gyro pointer movement |
+| `C` | Calibrate gyro bias; hold still through the brief calibration |
 | `H` / `B` | Home / Back |
 | `0` | Standby if connected; otherwise send Wake-on-LAN |
 | `-` / `=` | Volume down / up |
@@ -50,6 +51,16 @@ These shortcuts are also sent to the TV's system text input when a text-entry co
 - When SSAP is unavailable, `0` sends three Wake-on-LAN magic packets to the TV's Ethernet MAC on the local broadcast network.
 - The UI labels the disconnected state `WAKE`, since software cannot distinguish standby from a network outage. Wake depends on the TV's network wake setting and the router passing the local broadcast packet.
 - The TV MAC defaults to the value recorded in [device-map.md](../device-map.md) and can be changed over serial with `TVMAC <xx:xx:xx:xx:xx:xx>`.
+
+## Pointer tuning and diagnostics
+
+- The IMU sampling loop targets 100 Hz and accumulates motion into 50 Hz pointer frames.
+- A small stillness calibration gathers 80 gyro samples after a 250 ms settling interval. It rejects unstable readings, subtracts the measured X/Z bias, and saves an accepted bias in NVS for reuse after reboot.
+- The low-pass filter uses a 100 ms time constant at rest and 45 ms during deliberate movement. A 3 dps per-axis deadband remains in place.
+- Press `C` (or send `CALIBRATE` over serial) while holding the Cardputer still. `IMULOG ON` prints a 20 Hz trace with sample timing, raw gyro values, bias, filtered values, and pending pointer deltas; `IMULOG OFF` stops it.
+- Keep the sample/send rates and sensitivity fixed while collecting stationary, slow-aim, and fast-sweep traces. Tune the deadband, filter, or gain curve from those readings one at a time.
+
+Initial stationary bench trace (2026-11-17): calibration was accepted with approximately −0.09 dps X and Z bias. Observed sampling intervals were 10–11 ms, consistent with the 100 Hz target, and stationary raw gyro variation stayed far below the 3 dps deadband. This confirms the idle sensor is quiet; it does not yet characterize hand tremor or intentional slow aiming, so the deadband and gain have not been reduced.
 
 ## Next product passes
 

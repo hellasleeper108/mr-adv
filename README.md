@@ -4,7 +4,7 @@ Cardputer ADV firmware for controlling an LG OLED C1 over the local network. The
 
 ## Current status
 
-The Cardputer has paired with the C1, joined the 2.4 GHz network, and reconnected successfully after firmware updates. Pointer movement and directional input were verified at the TV's Linux input layer. The air pointer is tuned for a 50 Hz update target, an 80 ms smoothing time constant, a 3 dps deadband, and 13.22 pixels per degree. The user confirmed the pointer direction and that the new landscape display orientation works well.
+The Cardputer has paired with the C1, joined the 2.4 GHz network, and reconnected successfully after firmware updates. Pointer movement and directional input were verified at the TV's Linux input layer. The IMU is now sampled at a 100 Hz target while pointer deltas are sent at 50 Hz. Filtering adapts between a 100 ms idle time constant and a 45 ms active time constant, with a 3 dps deadband and 13.22 pixels per degree. Press `C` while holding the Cardputer still to calibrate gyro bias; an accepted calibration is saved in NVS and reused after reboot. The serial `IMULOG ON` command enables a 20 Hz trace for tuning. The user confirmed the pointer direction and that the landscape display orientation works well.
 
 The landscape dashboard shows TV/Wi-Fi and SSAP status, volume and pointer state, a D-pad illustration, and power, volume, mute, and pointer controls. `Tab` opens a shortcut guide. See [TUI design](docs/tui-design.md) for the layout and planned UI work.
 
@@ -17,6 +17,7 @@ Standby, Wake-on-LAN, volume, and mute actions are implemented but still need di
 | Fn + `;` / `,` / `.` / `/` | Up / Left / Down / Right |
 | Enter | Pointer click while air-pointer is on; navigation Enter while paused |
 | `P` | Pause/resume gyro pointer movement |
+| `C` | Calibrate gyro bias; hold the Cardputer still until complete |
 | `H` / `B` | Home / Back |
 | `0` | Standby if connected; otherwise send Wake-on-LAN |
 | `-` / `=` | Volume down / up |
@@ -55,7 +56,7 @@ The ESP32-S3 only supports 2.4 GHz Wi-Fi. Connect it to your router's 2.4 GHz SS
 
 ## Serial setup and diagnostics
 
-The USB serial monitor uses 115200 baud. SSID, password, TV address, TV MAC, and SSAP client key are stored in ESP32 NVS; the password and client key are not printed.
+The USB serial monitor uses 115200 baud. SSID, password, TV address, TV MAC, gyro bias, and SSAP client key are stored in ESP32 NVS; the password and client key are not printed.
 
 ```text
 WIFI <ssid>|<password>
@@ -69,6 +70,8 @@ The default TV IP and Ethernet MAC come from [device-map.md](device-map.md). Use
 - `PROBE` — check TCP reachability of TV ports 3000 and 3001.
 - `MOVE <dx> <dy>`, `BUTTON <name>`, and `CLICK` — send manual pointer input.
 - `POINTER ON|OFF` — pause or resume gyro motion.
+- `CALIBRATE` — measure gyro bias; hold the Cardputer still until complete.
+- `IMULOG ON|OFF` — enable/disable a 20 Hz raw and filtered gyro trace.
 - `POWER`, `VOLUP`, `VOLDOWN`, and `MUTE` — trigger the matching remote action.
 - `RESETKEY` — clear the saved SSAP client key and reconnect for registration.
 
